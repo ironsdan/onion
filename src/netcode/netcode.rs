@@ -15,6 +15,11 @@ pub struct GameBuffer<Input, State> {
     stale: bool
 }
 
+impl <Input, State> GameBuffer<Input, State> {
+    pub fn update_input(&mut self, index: u64, apply: fn(Input) -> Input) {
+        self.stale = true
+    }
+}
 
 // A frame is just a set of inputs (that have not yet been applied) and an id number for that frame
 pub struct Frame<Input> {
