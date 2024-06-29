@@ -45,13 +45,11 @@ use winit::{
     window::WindowBuilder,
 };
 
-mod graphics;
-
-use crate::graphics::camera;
-use crate::graphics::cube;
-use crate::graphics::fs;
-use crate::graphics::vertex;
-use crate::graphics::vs;
+use onion::graphics::camera;
+use onion::graphics::cube;
+use onion::graphics::fs;
+use onion::graphics::vertex;
+use onion::graphics::vs;
 
 fn main() -> Result<(), impl Error> {
     let event_loop = EventLoop::new().unwrap();

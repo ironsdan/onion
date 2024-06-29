@@ -1,6 +1,6 @@
 use glam::{Mat4, Vec3, Vec4};
 
-use crate::vertex::Vertex;
+use super::vertex::Vertex;
 use rand::Rng;
 
 const TRIANGLE_LIST_UNIT_CUBE: [Vec3; 36] = [
