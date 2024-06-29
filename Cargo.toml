@@ -4,3 +4,9 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+winit = "0.29"
+glam = "*"
+cgmath = "*"
+rand = "*"
+vulkano = { path = "../vulkano/vulkano", features = ["macros"] }
+vulkano-shaders = { path = "../vulkano/vulkano-shaders" }
