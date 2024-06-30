@@ -7,7 +7,7 @@ pub fn load(
     ::std::sync::Arc<::vulkano::shader::ShaderModule>,
     ::vulkano::Validated<::vulkano::VulkanError>,
 > {
-    let _bytes = ::std::include_bytes!("/home/dirons/src/rust/playground/src/shader.vert.glsl");
+    let _bytes = ::std::include_bytes!("../graphics/shaders/shader.vert.glsl");
     static WORDS: &[u32] = &[
         119734787u32,
         65536u32,
