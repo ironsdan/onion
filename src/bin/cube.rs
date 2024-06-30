@@ -326,7 +326,7 @@ fn main() -> Result<(), impl Error> {
             intermediary: {
                 format: swapchain.image_format(),
                 // This has to match the image definition.
-                samples: 8,
+                samples: 4,
                 load_op: Clear,
                 store_op: DontCare,
             },
@@ -338,7 +338,7 @@ fn main() -> Result<(), impl Error> {
             },
             depth_stencil: {
                 format: Format::D16_UNORM,
-                samples: 8,
+                samples: 4,
                 load_op: Clear,
                 store_op: DontCare,
             },
@@ -703,7 +703,7 @@ fn window_size_dependent_setup(
                 format: format,
                 extent: [extent[0], extent[1], 1],
                 usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSIENT_ATTACHMENT,
-                samples: SampleCount::Sample8,
+                samples: SampleCount::Sample4,
                 ..Default::default()
             },
             AllocationCreateInfo::default(),
@@ -720,7 +720,7 @@ fn window_size_dependent_setup(
                 format: Format::D16_UNORM,
                 extent: images[0].extent(),
                 usage: ImageUsage::DEPTH_STENCIL_ATTACHMENT | ImageUsage::TRANSIENT_ATTACHMENT,
-                samples: SampleCount::Sample8,
+                samples: SampleCount::Sample4,
                 ..Default::default()
             },
             AllocationCreateInfo::default(),
