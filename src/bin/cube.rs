@@ -14,7 +14,13 @@ use vulkano::{
     },
     format::Format,
     image::{view::ImageView, Image, ImageCreateInfo, ImageType, ImageUsage, SampleCount},
-    instance::{Instance, InstanceCreateFlags, InstanceCreateInfo},
+    instance::{
+        debug::{
+            DebugUtilsMessageSeverity, DebugUtilsMessageType, DebugUtilsMessenger,
+            DebugUtilsMessengerCallback, DebugUtilsMessengerCreateInfo,
+        },
+        Instance, InstanceCreateFlags, InstanceCreateInfo,
+    },
     memory::allocator::{AllocationCreateInfo, MemoryTypeFilter, StandardMemoryAllocator},
     pipeline::{
         graphics::{
@@ -53,19 +59,80 @@ use onion::graphics::vs;
 
 fn main() -> Result<(), impl Error> {
     let event_loop = EventLoop::new().unwrap();
-    let required_extensions = Surface::required_extensions(&event_loop).unwrap();
+    let mut required_extensions = Surface::required_extensions(&event_loop).unwrap();
+    required_extensions.ext_debug_utils = true;
+
     let library = VulkanLibrary::new().unwrap();
+
+    println!("List of Vulkan debugging layers available to use:");
+    let layers = library.layer_properties().unwrap();
+    for l in layers {
+        println!("\t{}", l.name());
+    }
+
+    let layers = vec!["VK_LAYER_KHRONOS_validation".to_owned()];
 
     let instance = Instance::new(
         library,
         InstanceCreateInfo {
             flags: InstanceCreateFlags::ENUMERATE_PORTABILITY,
-            // enabled_layers: layers,
+            enabled_layers: layers,
             enabled_extensions: required_extensions,
             ..Default::default()
         },
     )
     .expect("failed to create Vulkan instance");
+
+    let _debug_callback = unsafe {
+        DebugUtilsMessenger::new(
+            instance.clone(),
+            DebugUtilsMessengerCreateInfo {
+                message_severity: DebugUtilsMessageSeverity::ERROR
+                    | DebugUtilsMessageSeverity::WARNING
+                    | DebugUtilsMessageSeverity::INFO
+                    | DebugUtilsMessageSeverity::VERBOSE,
+                message_type: DebugUtilsMessageType::GENERAL
+                    | DebugUtilsMessageType::VALIDATION
+                    | DebugUtilsMessageType::PERFORMANCE,
+                ..DebugUtilsMessengerCreateInfo::user_callback(DebugUtilsMessengerCallback::new(
+                    |message_severity, message_type, callback_data| {
+                        let severity = if message_severity
+                            .intersects(DebugUtilsMessageSeverity::ERROR)
+                        {
+                            "error"
+                        } else if message_severity.intersects(DebugUtilsMessageSeverity::WARNING) {
+                            "warning"
+                        } else if message_severity.intersects(DebugUtilsMessageSeverity::INFO) {
+                            "information"
+                        } else if message_severity.intersects(DebugUtilsMessageSeverity::VERBOSE) {
+                            "verbose"
+                        } else {
+                            panic!("no-impl");
+                        };
+
+                        let ty = if message_type.intersects(DebugUtilsMessageType::GENERAL) {
+                            "general"
+                        } else if message_type.intersects(DebugUtilsMessageType::VALIDATION) {
+                            "validation"
+                        } else if message_type.intersects(DebugUtilsMessageType::PERFORMANCE) {
+                            "performance"
+                        } else {
+                            panic!("no-impl");
+                        };
+
+                        println!(
+                            "{} {} {}: {}",
+                            callback_data.message_id_name.unwrap_or("unknown"),
+                            ty,
+                            severity,
+                            callback_data.message
+                        );
+                    },
+                ))
+            },
+        )
+        .ok()
+    };
 
     let window = Arc::new(
         WindowBuilder::new()
