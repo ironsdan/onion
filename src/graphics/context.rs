@@ -26,6 +26,8 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
+use crate::graphics::render_pass::msaa;
+
 pub struct GraphicsContext {
     _instance: Arc<Instance>,
     _debug_callback: DebugUtilsMessenger,
@@ -38,6 +40,7 @@ pub struct GraphicsContext {
     pub final_images: Vec<Arc<Image>>,
     pub recreate_swapchain: bool,
     pub previous_frame_end: Option<Box<dyn GpuFuture>>,
+    pub msaa_render_pass: msaa::Pass,
 }
 
 impl GraphicsContext {
@@ -223,6 +226,9 @@ impl GraphicsContext {
 
         let previous_frame_end = Some(sync::now(device.clone()).boxed());
 
+        let msaa_pass =
+            msaa::Pass::new_msaa_render_pass(device.clone(), swapchain.image_format()).unwrap();
+
         Self {
             _instance,
             _debug_callback,
@@ -235,6 +241,7 @@ impl GraphicsContext {
             final_images,
             recreate_swapchain: false,
             previous_frame_end,
+            msaa_render_pass: msaa_pass,
         }
     }
 
