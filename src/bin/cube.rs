@@ -304,22 +304,6 @@ fn main() -> Result<(), impl Error> {
     )
     .unwrap();
 
-    // mod vs {
-    //     vulkano_shaders::shader! {
-    //         ty: "vertex",
-    //         path: "src/shader.vert.glsl",
-    //         dump: true,
-    //     }
-    // }
-
-    // mod fs {
-    //     vulkano_shaders::shader! {
-    //         ty: "fragment",
-    //         path: "src/shader.frag.glsl",
-    //         dump: true,
-    //     }
-    // }
-
     let render_pass = vulkano::single_pass_renderpass!(
         device.clone(),
         attachments: {
@@ -581,25 +565,6 @@ fn main() -> Result<(), impl Error> {
                     },
                 )
                 .unwrap();
-
-                // let angle = 0.0;
-                // let radians = angle * (std::f32::consts::PI / 180.0);
-
-                // println!("deg: {}, rad: {}", angle, radians);
-
-                // let rotate_x = Mat4::from_rotation_x(radians);
-                // let rotate_y = Mat4::from_rotation_y(radians);
-                // // let scale = Mat4::from_scale(Vec3::new(0.25, 0.25, 0.25));\
-                // let translation = Mat4::from_translation(Vec3::new(0.1, 0.1, -0.1));
-                // let f = (rotate_x * rotate_y) + translation;
-                // let f = translation;
-                // let mut camera = PerspectiveCamera::default();
-
-                // camera.translate_z(10.0);
-
-                // let f = camera.mvp_mat();
-
-                // println!("{}", f);
 
                 let push_constants = vs::constants {
                     data: [0.5, 0.5, image_extent[0] as f32, image_extent[1] as f32],

@@ -3,16 +3,6 @@ use cgmath::{Deg, Matrix4, Rad, Vector3, Vector4};
 use glam::Mat4;
 
 pub trait Camera {
-    // fn model_array(&self) -> [[f32; 4]; 4];
-
-    // fn view_array(&self) -> [[f32; 4]; 4];
-
-    // fn proj_array(&self) -> [[f32; 4]; 4];
-
-    // fn mv_array(&self) -> [[f32; 4]; 4];
-
-    // fn mvp_array(&self) -> [[f32; 4]; 4];
-
     fn mvp_mat(&self) -> Mat4;
 
     fn rotate_x(&mut self, degs: Deg<f32>);
@@ -26,8 +16,6 @@ pub trait Camera {
     fn translate_y(&mut self, amount: f32);
 
     fn translate_z(&mut self, amount: f32);
-
-    // fn as_mvp(&self) -> [[f32; 4]; 4];
 }
 
 #[allow(unused)]
@@ -37,7 +25,7 @@ pub trait Camera {
 /// common transformation on the camera by transforming the model, view, or projection component.
 ///
 /// Note: Follows Vulkan tradition of x: (-1, 1), y: (-1, 1), z: (0, 1) starting at the top left-front (-1,-1, 0),
-/// continuing with the consitency of Vulkan the camera looks down the POSITIVE z-direction rather than the negative
+/// continuing with the consistency of Vulkan the camera looks down the POSITIVE z-direction rather than the negative
 /// that is the standard in OpenGL.
 ///
 /// Note: Default values are fov: 75, aspect_ratio: 4.0/3.0, near: 5, far: 1000.
@@ -132,28 +120,6 @@ impl PerspectiveCamera {
 }
 
 impl Camera for PerspectiveCamera {
-    // fn model_array(&self) -> [[f32; 4]; 4] {
-    //     self.model.into()
-    // }
-
-    // fn view_array(&self) -> [[f32; 4]; 4] {
-    //     self.view.into()
-    // }
-
-    // fn proj_array(&self) -> [[f32; 4]; 4] {
-    //     self.proj.into()
-    // }
-
-    // fn mv_array(&self) -> [[f32; 4]; 4] {
-    //     let mv = self.model * self.view;
-    //     mv.into()
-    // }
-
-    // fn mvp_array(&self) -> [[f32; 4]; 4] {
-    //     let mvp = self.model * self.view * self.proj;
-    //     mvp.into()
-    // }
-
     fn mvp_mat(&self) -> Mat4 {
         let view = self.camera.invert().unwrap();
         let mvp = self.proj * view * self.model;
@@ -214,8 +180,4 @@ impl Camera for PerspectiveCamera {
             self.model, self.camera, self.proj
         );
     }
-
-    // fn as_mvp(&self) -> [[f32; 4]; 4] {
-    //     (self.model * self.view * self.proj).into()
-    // }
 }
