@@ -2,9 +2,9 @@ use std::sync::Arc;
 
 use vulkano::{
     command_buffer::{
-        allocator::StandardCommandBufferAllocator, CommandBufferBeginInfo, CommandBufferLevel,
-        CommandBufferUsage, RecordingCommandBuffer, RenderPassBeginInfo, SubpassBeginInfo,
-        SubpassContents,
+        self, allocator::StandardCommandBufferAllocator, CommandBufferBeginInfo,
+        CommandBufferLevel, CommandBufferUsage, RecordingCommandBuffer, RenderPassBeginInfo,
+        SubpassBeginInfo, SubpassContents,
     },
     device::{Device, Queue},
     format::Format,
@@ -21,12 +21,11 @@ use crate::graphics::pipelines;
 pub struct Pass {
     pub render_pass: Arc<RenderPass>,
     pub line_pso: Arc<GraphicsPipeline>,
-    pub texture_pso: Arc<GraphicsPipeline>,
     pub framebuffers: Vec<Arc<Framebuffer>>,
 }
 
 impl Pass {
-    pub fn new_msaa_render_pass(
+    pub fn new_overlay_render_pass(
         device: Arc<Device>,
         images: &[Arc<Image>],
         format: Format,
@@ -35,23 +34,15 @@ impl Pass {
         let render_pass = vulkano::single_pass_renderpass!(
             device.clone(),
             attachments: {
-                intermediary: {
-                    format: format,
-                    // This has to match the image definition.
-                    samples: 4,
-                    load_op: Clear,
-                    store_op: DontCare,
-                },
                 color: {
                     format: format,
                     samples: 1,
-                    load_op: Clear,
+                    load_op: Load,
                     store_op: Store,
                 },
             },
             pass: {
-                color: [intermediary],
-                color_resolve: [color],
+                color: [color],
                 depth_stencil: {},
             },
         )?;
@@ -59,8 +50,6 @@ impl Pass {
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
 
         let line_pso = pipelines::line::line_pso(device.clone(), subpass.clone())?;
-        let texture_pso = pipelines::texture::texture_pso(device.clone(), subpass.clone())?;
-
         let framebuffers = window_size_dependent_setup(
             images,
             render_pass.clone(),
@@ -71,7 +60,6 @@ impl Pass {
         Ok(Self {
             render_pass,
             line_pso,
-            texture_pso,
             framebuffers,
         })
     }
@@ -109,10 +97,7 @@ impl Pass {
         command_buffer
             .begin_render_pass(
                 RenderPassBeginInfo {
-                    clear_values: vec![
-                        Some([0.7, 0.7, 0.7, 1.0].into()),
-                        Some([0.7, 0.7, 0.7, 1.0].into()),
-                    ],
+                    clear_values: vec![None],
 
                     ..RenderPassBeginInfo::framebuffer(
                         self.framebuffers[image_index as usize].clone(),
@@ -140,8 +125,6 @@ impl Pass {
         future
             .then_execute(queue.clone(), command_buffer)
             .unwrap()
-            .then_signal_fence_and_flush()
-            .unwrap()
             .boxed()
     }
 }
@@ -153,24 +136,6 @@ fn window_size_dependent_setup(
     memory_allocator: Arc<StandardMemoryAllocator>,
     format: Format,
 ) -> Vec<Arc<Framebuffer>> {
-    let extent = images[0].extent();
-    let intermediary = ImageView::new_default(
-        Image::new(
-            memory_allocator.clone(),
-            ImageCreateInfo {
-                image_type: ImageType::Dim2d,
-                format: format,
-                extent: [extent[0], extent[1], 1],
-                usage: ImageUsage::COLOR_ATTACHMENT | ImageUsage::TRANSIENT_ATTACHMENT,
-                samples: SampleCount::Sample4,
-                ..Default::default()
-            },
-            AllocationCreateInfo::default(),
-        )
-        .unwrap(),
-    )
-    .unwrap();
-
     images
         .iter()
         .map(|image| {
@@ -178,7 +143,7 @@ fn window_size_dependent_setup(
             Framebuffer::new(
                 render_pass.clone(),
                 FramebufferCreateInfo {
-                    attachments: vec![intermediary.clone(), view],
+                    attachments: vec![view],
                     ..Default::default()
                 },
             )

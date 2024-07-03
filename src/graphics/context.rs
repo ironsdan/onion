@@ -2,6 +2,7 @@ use core::result::Result::Ok;
 use std::sync::Arc;
 
 use vulkano::{
+    command_buffer::allocator::StandardCommandBufferAllocator,
     device::{
         physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, Queue,
         QueueCreateInfo, QueueFlags,
@@ -14,6 +15,7 @@ use vulkano::{
         },
         Instance, InstanceCreateFlags, InstanceCreateInfo, InstanceExtensions,
     },
+    memory::allocator::{FreeListAllocator, GenericMemoryAllocator, StandardMemoryAllocator},
     swapchain::{
         acquire_next_image, Surface, Swapchain, SwapchainCreateInfo, SwapchainPresentInfo,
     },
@@ -26,7 +28,7 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use crate::graphics::render_pass::msaa;
+use crate::graphics::render_pass::{msaa, overlay};
 
 pub struct GraphicsContext {
     _instance: Arc<Instance>,
@@ -41,6 +43,9 @@ pub struct GraphicsContext {
     pub recreate_swapchain: bool,
     pub previous_frame_end: Option<Box<dyn GpuFuture>>,
     pub msaa_render_pass: msaa::Pass,
+    pub overlay_render_pass: overlay::Pass,
+    pub memory_allocator: Arc<GenericMemoryAllocator<FreeListAllocator>>,
+    pub command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
 }
 
 impl GraphicsContext {
@@ -226,8 +231,28 @@ impl GraphicsContext {
 
         let previous_frame_end = Some(sync::now(device.clone()).boxed());
 
-        let msaa_pass =
-            msaa::Pass::new_msaa_render_pass(device.clone(), swapchain.image_format()).unwrap();
+        let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
+
+        let msaa_pass = msaa::Pass::new_msaa_render_pass(
+            device.clone(),
+            &final_images,
+            swapchain.image_format(),
+            memory_allocator.clone(),
+        )
+        .unwrap();
+
+        let overlay_pass = overlay::Pass::new_overlay_render_pass(
+            device.clone(),
+            &final_images,
+            swapchain.image_format(),
+            memory_allocator.clone(),
+        )
+        .unwrap();
+
+        let command_buffer_allocator = Arc::new(StandardCommandBufferAllocator::new(
+            device.clone(),
+            Default::default(),
+        ));
 
         Self {
             _instance,
@@ -242,6 +267,9 @@ impl GraphicsContext {
             recreate_swapchain: false,
             previous_frame_end,
             msaa_render_pass: msaa_pass,
+            overlay_render_pass: overlay_pass,
+            memory_allocator,
+            command_buffer_allocator,
         }
     }
 
@@ -311,6 +339,17 @@ impl GraphicsContext {
 
         self.swapchain = new_swapchain;
         self.final_images = new_images;
+
+        self.msaa_render_pass.window_size_update(
+            &self.final_images,
+            self.swapchain.image_format(),
+            self.memory_allocator.clone(),
+        );
+        self.overlay_render_pass.window_size_update(
+            &self.final_images,
+            self.swapchain.image_format(),
+            self.memory_allocator.clone(),
+        );
 
         self.recreate_swapchain = false;
     }
