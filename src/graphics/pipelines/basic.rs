@@ -1,8 +1,13 @@
 use std::sync::Arc;
 
 use vulkano::{
-    buffer::BufferContents,
-    device::Device,
+    buffer::{BufferContents, Subbuffer},
+    command_buffer::{
+        allocator::StandardCommandBufferAllocator, CommandBuffer, CommandBufferBeginInfo,
+        CommandBufferInheritanceInfo, CommandBufferLevel, CommandBufferUsage,
+        RecordingCommandBuffer,
+    },
+    device::Queue,
     pipeline::{
         graphics::{
             color_blend::{AttachmentBlend, ColorBlendAttachmentState, ColorBlendState},
@@ -10,7 +15,7 @@ use vulkano::{
             multisample::MultisampleState,
             rasterization::RasterizationState,
             vertex_input::{Vertex, VertexDefinition},
-            viewport::ViewportState,
+            viewport::{Viewport, ViewportState},
             GraphicsPipelineCreateInfo,
         },
         layout::PipelineDescriptorSetLayoutCreateInfo,
@@ -24,14 +29,24 @@ use vulkano::{
 pub struct Vert {
     #[format(R32G32_SFLOAT)]
     pub position: [f32; 2],
+    #[format(R32G32B32_SFLOAT)]
+    pub color: [f32; 3],
 }
 
-pub struct LinePSO {
+pub struct BasicPSO {
+    gfx_queue: Arc<Queue>,
+    subpass: Subpass,
     pub pipeline: Arc<GraphicsPipeline>,
+    cb_allocator: Arc<StandardCommandBufferAllocator>,
 }
 
-impl LinePSO {
-    pub fn new(device: Arc<Device>, subpass: Subpass) -> Self {
+impl BasicPSO {
+    pub fn new(
+        gfx_queue: Arc<Queue>,
+        subpass: Subpass,
+        cb_allocator: Arc<StandardCommandBufferAllocator>,
+    ) -> Self {
+        let device = gfx_queue.device();
         let vs = vs::load(device.clone())
             .unwrap()
             .entry_point("main")
@@ -63,7 +78,7 @@ impl LinePSO {
                 stages: stages.into_iter().collect(),
                 vertex_input_state: Some(vertex_input_state),
                 input_assembly_state: Some(InputAssemblyState {
-                    topology: PrimitiveTopology::LineList,
+                    topology: PrimitiveTopology::TriangleList,
                     ..Default::default()
                 }),
                 viewport_state: Some(ViewportState::default()),
@@ -81,13 +96,63 @@ impl LinePSO {
                 )),
                 depth_stencil_state: None,
                 dynamic_state: [DynamicState::Viewport].into_iter().collect(),
-                subpass: Some(subpass.into()),
+                subpass: Some(subpass.clone().into()),
                 ..GraphicsPipelineCreateInfo::layout(layout)
             },
         )
         .unwrap();
 
-        Self { pipeline }
+        Self {
+            gfx_queue,
+            subpass,
+            pipeline,
+            cb_allocator,
+        }
+    }
+
+    /// Builds a secondary command buffer that draws the triangle on the current subpass.
+    pub fn draw<V>(
+        &self,
+        viewport_dimensions: [u32; 2],
+        vertices: Subbuffer<[V]>,
+    ) -> Arc<CommandBuffer> {
+        let mut builder = RecordingCommandBuffer::new(
+            self.cb_allocator.clone(),
+            self.gfx_queue.queue_family_index(),
+            CommandBufferLevel::Secondary,
+            CommandBufferBeginInfo {
+                usage: CommandBufferUsage::MultipleSubmit,
+                inheritance_info: Some(CommandBufferInheritanceInfo {
+                    render_pass: Some(self.subpass.clone().into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        builder
+            .set_viewport(
+                0,
+                [Viewport {
+                    offset: [0.0, 0.0],
+                    extent: [viewport_dimensions[0] as f32, viewport_dimensions[1] as f32],
+                    depth_range: 0.0..=1.0,
+                }]
+                .into_iter()
+                .collect(),
+            )
+            .unwrap()
+            .bind_pipeline_graphics(self.pipeline.clone())
+            .unwrap()
+            .bind_vertex_buffers(0, vertices.clone())
+            .unwrap();
+
+        unsafe {
+            builder.draw(vertices.len() as u32, 1, 0, 0).unwrap();
+        }
+
+        builder.end().unwrap()
     }
 }
 
@@ -97,17 +162,13 @@ pub mod vs {
         src: r"
             #version 450
 
-            layout(push_constant) uniform constants {
-                vec2 mouse_pos;
-            } pc;
-
             layout(location = 0) in vec2 position;
+            layout(location = 1) in vec3 color;
             layout(location = 0) out vec3 v_color;
 
             void main() {
-                vec2 p = position + pc.mouse_pos;
-                gl_Position = vec4(p, 0.0, 1.0);
-                v_color = vec3(1.0, 1.0, 1.0);
+                gl_Position = vec4(position, 0.0, 1.0);
+                v_color = color;
             }
         ",
     }

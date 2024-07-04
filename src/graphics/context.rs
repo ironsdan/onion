@@ -2,7 +2,9 @@ use core::result::Result::Ok;
 use std::sync::Arc;
 
 use vulkano::{
-    command_buffer::allocator::StandardCommandBufferAllocator,
+    command_buffer::allocator::{
+        StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo,
+    },
     device::{
         physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, Queue,
         QueueCreateInfo, QueueFlags,
@@ -36,16 +38,16 @@ pub struct GraphicsContext {
     pub device: Arc<Device>,
     pub window: Arc<Window>,
     pub surface: Arc<Surface>,
-    pub graphics_queue: Arc<Queue>,
+    pub gfx_queue: Arc<Queue>,
     pub swapchain: Arc<Swapchain>,
     pub image_index: u32,
     pub final_images: Vec<Arc<Image>>,
     pub recreate_swapchain: bool,
     pub previous_frame_end: Option<Box<dyn GpuFuture>>,
-    pub msaa_render_pass: msaa::Pass,
+    pub msaa_render_pass: msaa::RenderPassMSAABasic,
     pub overlay_render_pass: overlay::Pass,
     pub memory_allocator: Arc<GenericMemoryAllocator<FreeListAllocator>>,
-    pub command_buffer_allocator: Arc<StandardCommandBufferAllocator>,
+    pub cb_allocator: Arc<StandardCommandBufferAllocator>,
 }
 
 impl GraphicsContext {
@@ -196,7 +198,7 @@ impl GraphicsContext {
         )
         .unwrap();
 
-        let graphics_queue = queues.next().unwrap();
+        let gfx_queue = queues.next().unwrap();
 
         let (swapchain, final_images) = {
             let surface_capabilities = device
@@ -233,11 +235,10 @@ impl GraphicsContext {
 
         let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
-        let msaa_pass = msaa::Pass::new_msaa_render_pass(
+        let msaa_pass = msaa::RenderPassMSAABasic::new(
             device.clone(),
-            &final_images,
+            gfx_queue.clone(),
             swapchain.image_format(),
-            memory_allocator.clone(),
         )
         .unwrap();
 
@@ -245,13 +246,15 @@ impl GraphicsContext {
             device.clone(),
             &final_images,
             swapchain.image_format(),
-            memory_allocator.clone(),
         )
         .unwrap();
 
-        let command_buffer_allocator = Arc::new(StandardCommandBufferAllocator::new(
+        let cb_allocator = Arc::new(StandardCommandBufferAllocator::new(
             device.clone(),
-            Default::default(),
+            StandardCommandBufferAllocatorCreateInfo {
+                secondary_buffer_count: 32,
+                ..Default::default()
+            },
         ));
 
         Self {
@@ -260,7 +263,7 @@ impl GraphicsContext {
             device,
             window,
             surface,
-            graphics_queue,
+            gfx_queue,
             swapchain,
             image_index: 0,
             final_images,
@@ -269,7 +272,7 @@ impl GraphicsContext {
             msaa_render_pass: msaa_pass,
             overlay_render_pass: overlay_pass,
             memory_allocator,
-            command_buffer_allocator,
+            cb_allocator,
         }
     }
 
@@ -304,7 +307,7 @@ impl GraphicsContext {
     pub fn finish_frame(&mut self, after_future: Box<dyn GpuFuture>) {
         let future = after_future
             .then_swapchain_present(
-                self.graphics_queue.clone(),
+                self.gfx_queue.clone(),
                 SwapchainPresentInfo::swapchain_image_index(
                     self.swapchain.clone(),
                     self.image_index,
@@ -339,17 +342,8 @@ impl GraphicsContext {
 
         self.swapchain = new_swapchain;
         self.final_images = new_images;
-
-        self.msaa_render_pass.window_size_update(
-            &self.final_images,
-            self.swapchain.image_format(),
-            self.memory_allocator.clone(),
-        );
-        self.overlay_render_pass.window_size_update(
-            &self.final_images,
-            self.swapchain.image_format(),
-            self.memory_allocator.clone(),
-        );
+        self.overlay_render_pass
+            .window_size_update(&self.final_images);
 
         self.recreate_swapchain = false;
     }

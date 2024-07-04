@@ -2,25 +2,23 @@ use std::sync::Arc;
 
 use vulkano::{
     command_buffer::{
-        self, allocator::StandardCommandBufferAllocator, CommandBufferBeginInfo,
-        CommandBufferLevel, CommandBufferUsage, RecordingCommandBuffer, RenderPassBeginInfo,
-        SubpassBeginInfo, SubpassContents,
+        allocator::StandardCommandBufferAllocator, CommandBufferBeginInfo, CommandBufferLevel,
+        CommandBufferUsage, RecordingCommandBuffer, RenderPassBeginInfo, SubpassBeginInfo,
+        SubpassContents,
     },
     device::{Device, Queue},
     format::Format,
-    image::{view::ImageView, Image, ImageCreateInfo, ImageType, ImageUsage, SampleCount},
-    memory::allocator::{AllocationCreateInfo, StandardMemoryAllocator},
-    pipeline::GraphicsPipeline,
+    image::{view::ImageView, Image},
     render_pass::{Framebuffer, FramebufferCreateInfo, RenderPass, Subpass},
     sync::GpuFuture,
     Validated, VulkanError,
 };
 
-use crate::graphics::pipelines;
+use crate::graphics::pipelines::line::LinePSO;
 
 pub struct Pass {
     pub render_pass: Arc<RenderPass>,
-    pub line_pso: Arc<GraphicsPipeline>,
+    pub line_pso: LinePSO,
     pub framebuffers: Vec<Arc<Framebuffer>>,
 }
 
@@ -29,7 +27,6 @@ impl Pass {
         device: Arc<Device>,
         images: &[Arc<Image>],
         format: Format,
-        memory_allocator: Arc<StandardMemoryAllocator>,
     ) -> Result<Pass, Validated<VulkanError>> {
         let render_pass = vulkano::single_pass_renderpass!(
             device.clone(),
@@ -49,13 +46,8 @@ impl Pass {
 
         let subpass = Subpass::from(render_pass.clone(), 0).unwrap();
 
-        let line_pso = pipelines::line::line_pso(device.clone(), subpass.clone())?;
-        let framebuffers = window_size_dependent_setup(
-            images,
-            render_pass.clone(),
-            memory_allocator.clone(),
-            format,
-        );
+        let line_pso = LinePSO::new(device.clone(), subpass.clone());
+        let framebuffers = window_size_dependent_setup(images, render_pass.clone());
 
         Ok(Self {
             render_pass,
@@ -64,18 +56,8 @@ impl Pass {
         })
     }
 
-    pub fn window_size_update(
-        &mut self,
-        images: &[Arc<Image>],
-        format: Format,
-        memory_allocator: Arc<StandardMemoryAllocator>,
-    ) {
-        self.framebuffers = window_size_dependent_setup(
-            images,
-            self.render_pass.clone(),
-            memory_allocator.clone(),
-            format,
-        );
+    pub fn window_size_update(&mut self, images: &[Arc<Image>]) {
+        self.framebuffers = window_size_dependent_setup(images, self.render_pass.clone());
     }
 
     pub fn start(
@@ -133,8 +115,6 @@ impl Pass {
 fn window_size_dependent_setup(
     images: &[Arc<Image>],
     render_pass: Arc<RenderPass>,
-    memory_allocator: Arc<StandardMemoryAllocator>,
-    format: Format,
 ) -> Vec<Arc<Framebuffer>> {
     images
         .iter()
