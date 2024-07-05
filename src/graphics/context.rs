@@ -30,7 +30,15 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use crate::graphics::render_pass::{msaa, overlay};
+use super::{pipelines::basic::BasicPSO, render_pass::basic::RenderPassBasic};
+
+pub struct Pipelines {
+    pub basic: BasicPSO,
+}
+
+pub struct RenderPasses {
+    pub basic: RenderPassBasic,
+}
 
 pub struct GraphicsContext {
     _instance: Arc<Instance>,
@@ -44,8 +52,8 @@ pub struct GraphicsContext {
     pub final_images: Vec<Arc<Image>>,
     pub recreate_swapchain: bool,
     pub previous_frame_end: Option<Box<dyn GpuFuture>>,
-    pub msaa_render_pass: msaa::RenderPassMSAABasic,
-    pub overlay_render_pass: overlay::Pass,
+    pub pipelines: Pipelines,
+    pub render_passes: RenderPasses,
     pub memory_allocator: Arc<GenericMemoryAllocator<FreeListAllocator>>,
     pub cb_allocator: Arc<StandardCommandBufferAllocator>,
 }
@@ -235,20 +243,6 @@ impl GraphicsContext {
 
         let memory_allocator = Arc::new(StandardMemoryAllocator::new_default(device.clone()));
 
-        let msaa_pass = msaa::RenderPassMSAABasic::new(
-            device.clone(),
-            gfx_queue.clone(),
-            swapchain.image_format(),
-        )
-        .unwrap();
-
-        let overlay_pass = overlay::Pass::new_overlay_render_pass(
-            device.clone(),
-            &final_images,
-            swapchain.image_format(),
-        )
-        .unwrap();
-
         let cb_allocator = Arc::new(StandardCommandBufferAllocator::new(
             device.clone(),
             StandardCommandBufferAllocatorCreateInfo {
@@ -256,6 +250,18 @@ impl GraphicsContext {
                 ..Default::default()
             },
         ));
+
+        let render_passes = RenderPasses {
+            basic: RenderPassBasic::new(gfx_queue.clone(), swapchain.image_format()).unwrap(),
+        };
+
+        let pipelines = Pipelines {
+            basic: BasicPSO::new(
+                gfx_queue.clone(),
+                render_passes.basic.draw_pass(),
+                cb_allocator.clone(),
+            ),
+        };
 
         Self {
             _instance,
@@ -269,8 +275,8 @@ impl GraphicsContext {
             final_images,
             recreate_swapchain: false,
             previous_frame_end,
-            msaa_render_pass: msaa_pass,
-            overlay_render_pass: overlay_pass,
+            render_passes,
+            pipelines,
             memory_allocator,
             cb_allocator,
         }
@@ -342,9 +348,6 @@ impl GraphicsContext {
 
         self.swapchain = new_swapchain;
         self.final_images = new_images;
-        self.overlay_render_pass
-            .window_size_update(&self.final_images);
-
         self.recreate_swapchain = false;
     }
 }
