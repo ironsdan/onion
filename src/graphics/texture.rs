@@ -3,57 +3,52 @@ use std::sync::Arc;
 use vulkano::{
     buffer::{Buffer, BufferCreateInfo, BufferUsage},
     command_buffer::CommandBuffer,
+    image::Image,
     memory::allocator::{AllocationCreateInfo, MemoryAllocator, MemoryTypeFilter},
 };
 
-use super::pipelines::basic::{PSOBasic, Vert};
-use super::Color;
+use super::pipelines::texture::PSOTexture;
+use super::pipelines::texture::Vert;
 
-pub struct Square {
+pub struct Texture {
     size: f32,
-    color: Color,
 }
 
-impl Square {
-    pub fn new(size: f32, color: Color) -> Self {
-        Square { size, color }
+impl Texture {
+    pub fn new(size: f32) -> Self {
+        Texture { size }
     }
 
     pub fn draw(
         &self,
         memory_allocator: Arc<dyn MemoryAllocator>,
-        pipeline: &mut PSOBasic,
+        pipeline: &mut PSOTexture,
+        image: Arc<Image>,
         viewport: [u32; 2],
     ) -> Arc<CommandBuffer> {
         let vertices = [
             Vert {
                 position: [-self.size, -self.size],
-                color: self.color.into(),
             },
             Vert {
                 position: [self.size, self.size],
-                color: self.color.into(),
             },
             Vert {
                 position: [-self.size, self.size],
-                color: self.color.into(),
             },
             Vert {
                 position: [-self.size, -self.size],
-                color: self.color.into(),
             },
             Vert {
                 position: [self.size, -self.size],
-                color: self.color.into(),
             },
             Vert {
                 position: [self.size, self.size],
-                color: self.color.into(),
             },
         ];
 
         let vb = Buffer::from_iter(
-            memory_allocator.clone(),
+            memory_allocator,
             BufferCreateInfo {
                 usage: BufferUsage::VERTEX_BUFFER,
                 ..Default::default()
@@ -67,6 +62,6 @@ impl Square {
         )
         .unwrap();
 
-        pipeline.draw(viewport, vb)
+        pipeline.draw(viewport, image, vb)
     }
 }

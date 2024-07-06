@@ -1,14 +1,24 @@
-use onion::graphics::{context::GraphicsContext, render_pass::basic::BasicPass, shape, Color};
+use onion::graphics::{
+    context::GraphicsContext,
+    render_pass::basic::{BasicMSAAPass, BasicPass},
+    shape, Color,
+};
 use std::error::Error;
 use winit::{
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
 };
 
+use onion::graphics::texture::Texture;
+
 fn main() -> Result<(), impl Error> {
     let event_loop = EventLoop::new().unwrap();
 
     let mut gfx = GraphicsContext::new(&event_loop);
+
+    let png_bytes = include_bytes!("img.png").as_slice();
+    let buf_info = gfx.upload_png(png_bytes);
+    let image = gfx.upload_image(buf_info.0, buf_info.1);
 
     event_loop.run(move |event, elwt| {
         elwt.set_control_flow(ControlFlow::Poll);
@@ -32,8 +42,9 @@ fn main() -> Result<(), impl Error> {
             } => {
                 let future = gfx.start_frame().unwrap();
 
-                let render_pass = &mut gfx.render_passes.basic;
-                let pipeline = &mut gfx.pipelines.basic;
+                let render_pass = &mut gfx.render_passes.basic_msaa;
+                let basic_pipeline = &mut gfx.pipelines.basic;
+                let texture_pipeline = &mut gfx.pipelines.texture;
 
                 let mut frame = render_pass
                     .frame(
@@ -47,16 +58,24 @@ fn main() -> Result<(), impl Error> {
                 let mut after_future = None;
                 while let Some(pass) = frame.next_pass().unwrap() {
                     match pass {
-                        BasicPass::Draw(mut draw_pass) => {
+                        BasicMSAAPass::Draw(mut draw_pass) => {
+                            let img = Texture::new(0.5);
+                            let cb = img.draw(
+                                gfx.memory_allocator.clone(),
+                                texture_pipeline,
+                                image.clone(),
+                                draw_pass.viewport_dimensions(),
+                            );
+                            draw_pass.execute(cb).unwrap();
                             let square = shape::Square::new(0.1, Color::red());
                             let cb = square.draw(
                                 gfx.memory_allocator.clone(),
-                                pipeline,
+                                basic_pipeline,
                                 draw_pass.viewport_dimensions(),
                             );
                             draw_pass.execute(cb).unwrap();
                         }
-                        BasicPass::Finished(af) => {
+                        BasicMSAAPass::Finished(af) => {
                             after_future = Some(af);
                         }
                     }

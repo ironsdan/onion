@@ -2,14 +2,19 @@ use core::result::Result::Ok;
 use std::sync::Arc;
 
 use vulkano::{
-    command_buffer::allocator::{
-        StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo,
+    buffer::{Buffer, BufferCreateInfo, BufferUsage, Subbuffer},
+    command_buffer::{
+        allocator::{StandardCommandBufferAllocator, StandardCommandBufferAllocatorCreateInfo},
+        CommandBufferBeginInfo, CommandBufferLevel, CommandBufferUsage, CopyBufferToImageInfo,
+        RecordingCommandBuffer,
     },
+    descriptor_set::allocator::StandardDescriptorSetAllocator,
     device::{
         physical::PhysicalDeviceType, Device, DeviceCreateInfo, DeviceExtensions, Queue,
         QueueCreateInfo, QueueFlags,
     },
-    image::{Image, ImageUsage},
+    format::Format,
+    image::{Image, ImageCreateInfo, ImageType, ImageUsage},
     instance::{
         debug::{
             DebugUtilsMessageSeverity, DebugUtilsMessageType, DebugUtilsMessenger,
@@ -17,12 +22,15 @@ use vulkano::{
         },
         Instance, InstanceCreateFlags, InstanceCreateInfo, InstanceExtensions,
     },
-    memory::allocator::{FreeListAllocator, GenericMemoryAllocator, StandardMemoryAllocator},
+    memory::allocator::{
+        AllocationCreateInfo, FreeListAllocator, GenericMemoryAllocator, MemoryTypeFilter,
+        StandardMemoryAllocator,
+    },
     swapchain::{
         acquire_next_image, Surface, Swapchain, SwapchainCreateInfo, SwapchainPresentInfo,
     },
     sync::{self, GpuFuture},
-    Validated, VulkanError, VulkanLibrary,
+    DeviceSize, Validated, VulkanError, VulkanLibrary,
 };
 use winit::{
     dpi::PhysicalSize,
@@ -30,14 +38,19 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
-use super::{pipelines::basic::BasicPSO, render_pass::basic::RenderPassBasic};
+use super::{
+    pipelines::{basic::PSOBasic, texture::PSOTexture},
+    render_pass::basic::{RenderPassBasic, RenderPassBasicMSAA},
+};
 
 pub struct Pipelines {
-    pub basic: BasicPSO,
+    pub basic: PSOBasic,
+    pub texture: PSOTexture,
 }
 
 pub struct RenderPasses {
     pub basic: RenderPassBasic,
+    pub basic_msaa: RenderPassBasicMSAA,
 }
 
 pub struct GraphicsContext {
@@ -251,15 +264,28 @@ impl GraphicsContext {
             },
         ));
 
+        let ds_allocator = Arc::new(StandardDescriptorSetAllocator::new(
+            device.clone(),
+            Default::default(),
+        ));
+
         let render_passes = RenderPasses {
             basic: RenderPassBasic::new(gfx_queue.clone(), swapchain.image_format()).unwrap(),
+            basic_msaa: RenderPassBasicMSAA::new(gfx_queue.clone(), swapchain.image_format())
+                .unwrap(),
         };
 
         let pipelines = Pipelines {
-            basic: BasicPSO::new(
+            basic: PSOBasic::new(
                 gfx_queue.clone(),
                 render_passes.basic.draw_pass(),
                 cb_allocator.clone(),
+            ),
+            texture: PSOTexture::new(
+                gfx_queue.clone(),
+                render_passes.basic.draw_pass(),
+                cb_allocator.clone(),
+                ds_allocator.clone(),
             ),
         };
 
@@ -349,5 +375,72 @@ impl GraphicsContext {
         self.swapchain = new_swapchain;
         self.final_images = new_images;
         self.recreate_swapchain = false;
+    }
+
+    pub fn upload_image(&mut self, buf: Subbuffer<[u8]>, extent: [u32; 3]) -> Arc<Image> {
+        let mut cb = RecordingCommandBuffer::new(
+            self.cb_allocator.clone(),
+            self.gfx_queue.queue_family_index(),
+            CommandBufferLevel::Primary,
+            CommandBufferBeginInfo {
+                usage: CommandBufferUsage::OneTimeSubmit,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+
+        let image = Image::new(
+            self.memory_allocator.clone(),
+            ImageCreateInfo {
+                image_type: ImageType::Dim2d,
+                format: Format::R8G8B8A8_SRGB,
+                extent,
+                usage: ImageUsage::TRANSFER_DST | ImageUsage::SAMPLED,
+                ..Default::default()
+            },
+            AllocationCreateInfo::default(),
+        )
+        .unwrap();
+
+        cb.copy_buffer_to_image(CopyBufferToImageInfo::buffer_image(buf, image.clone()))
+            .unwrap();
+
+        self.previous_frame_end = Some(
+            cb.end()
+                .unwrap()
+                .execute(self.gfx_queue.clone())
+                .unwrap()
+                .boxed(),
+        );
+
+        image
+    }
+
+    pub fn upload_png(&self, image_bytes: &[u8]) -> (Subbuffer<[u8]>, [u32; 3]) {
+        let decoder = png::Decoder::new(image_bytes);
+        let mut reader = decoder.read_info().unwrap();
+        let info = reader.info();
+        let extent = [info.width, info.height, 1];
+
+        let upload_buffer = Buffer::new_slice(
+            self.memory_allocator.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_SRC,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
+            (info.width * info.height * 4) as DeviceSize,
+        )
+        .unwrap();
+
+        reader
+            .next_frame(&mut upload_buffer.write().unwrap())
+            .unwrap();
+
+        (upload_buffer, extent)
     }
 }

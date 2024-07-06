@@ -4,6 +4,7 @@ pub mod cube;
 pub mod pipelines;
 pub mod render_pass;
 pub mod shape;
+pub mod texture;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Color([f32; 4]);

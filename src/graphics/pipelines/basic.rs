@@ -33,14 +33,14 @@ pub struct Vert {
     pub color: [f32; 3],
 }
 
-pub struct BasicPSO {
+pub struct PSOBasic {
     gfx_queue: Arc<Queue>,
     subpass: Subpass,
     pub pipeline: Arc<GraphicsPipeline>,
     cb_allocator: Arc<StandardCommandBufferAllocator>,
 }
 
-impl BasicPSO {
+impl PSOBasic {
     pub fn new(
         gfx_queue: Arc<Queue>,
         subpass: Subpass,
