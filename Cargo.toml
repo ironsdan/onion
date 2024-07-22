@@ -12,3 +12,5 @@ vulkano = { git = "https://github.com/vulkano-rs/vulkano", rev = "582a246", feat
 vulkano-shaders = { git = "https://github.com/vulkano-rs/vulkano", rev = "582a246" }
 vulkano-util = { git = "https://github.com/vulkano-rs/vulkano", rev = "582a246" }
 png = "*"
+fontdue = "*"
+hecs ="*"

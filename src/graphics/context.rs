@@ -40,17 +40,22 @@ use winit::{
 
 use super::{
     pipelines::{basic::PSOBasic, texture::PSOTexture},
-    render_pass::basic::{RenderPassBasic, RenderPassBasicMSAA},
+    render_pass::{
+        basic::{RenderPassBasic, RenderPassBasicMSAA},
+        overlay::RenderPassOverlay,
+    },
 };
 
 pub struct Pipelines {
     pub basic: PSOBasic,
     pub texture: PSOTexture,
+    pub overlay: PSOBasic,
 }
 
 pub struct RenderPasses {
     pub basic: RenderPassBasic,
     pub basic_msaa: RenderPassBasicMSAA,
+    pub overlay: RenderPassOverlay,
 }
 
 pub struct GraphicsContext {
@@ -273,6 +278,7 @@ impl GraphicsContext {
             basic: RenderPassBasic::new(gfx_queue.clone(), swapchain.image_format()).unwrap(),
             basic_msaa: RenderPassBasicMSAA::new(gfx_queue.clone(), swapchain.image_format())
                 .unwrap(),
+            overlay: RenderPassOverlay::new(gfx_queue.clone(), swapchain.image_format()).unwrap(),
         };
 
         let pipelines = Pipelines {
@@ -286,6 +292,11 @@ impl GraphicsContext {
                 render_passes.basic.draw_pass(),
                 cb_allocator.clone(),
                 ds_allocator.clone(),
+            ),
+            overlay: PSOBasic::new(
+                gfx_queue.clone(),
+                render_passes.overlay.draw_pass(),
+                cb_allocator.clone(),
             ),
         };
 
@@ -416,7 +427,7 @@ impl GraphicsContext {
         image
     }
 
-    pub fn upload_png(&self, image_bytes: &[u8]) -> (Subbuffer<[u8]>, [u32; 3]) {
+    pub fn upload_png(&mut self, image_bytes: &[u8]) -> Arc<Image> {
         let decoder = png::Decoder::new(image_bytes);
         let mut reader = decoder.read_info().unwrap();
         let info = reader.info();
@@ -441,6 +452,27 @@ impl GraphicsContext {
             .next_frame(&mut upload_buffer.write().unwrap())
             .unwrap();
 
-        (upload_buffer, extent)
+        self.upload_image(upload_buffer, extent)
+    }
+
+    pub fn upload_rgba(&mut self, buf: Vec<u8>, extent: [u32; 3]) -> Arc<Image> {
+        let upload_buffer = Buffer::from_iter(
+            self.memory_allocator.clone(),
+            BufferCreateInfo {
+                usage: BufferUsage::TRANSFER_SRC,
+                ..Default::default()
+            },
+            AllocationCreateInfo {
+                memory_type_filter: MemoryTypeFilter::PREFER_HOST
+                    | MemoryTypeFilter::HOST_SEQUENTIAL_WRITE,
+                ..Default::default()
+            },
+            buf,
+        )
+        .unwrap();
+
+        upload_buffer.write().unwrap();
+
+        self.upload_image(upload_buffer, extent)
     }
 }
