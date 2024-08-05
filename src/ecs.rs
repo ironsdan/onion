@@ -1,9 +1,11 @@
-use super::schedule::{ScheduleLabel, Scheduler};
 use hecs::Entity;
+use petgraph::graphmap::DiGraphMap;
+use petgraph::visit::Bfs;
 use std::any::TypeId;
 use std::collections::hash_map::Entry::Vacant;
 use std::collections::HashMap;
 use std::fmt::Debug;
+use thiserror::Error;
 
 // An ECS system.
 pub type System = fn(&mut World) -> anyhow::Result<()>;
@@ -22,6 +24,12 @@ pub struct EventBuffer<E: Event> {
 }
 
 impl<E: Event> Resource for EventBuffer<E> {}
+
+#[derive(Error, Debug)]
+pub enum ECSError {
+    #[error("resource not found")]
+    ResourceNotFound,
+}
 
 // An extended hecs::World. Adds resources, events and TODO: commands.
 pub struct World {
@@ -66,10 +74,10 @@ impl World {
     // Insert a new unique resource. Resources are Worldly unique so inserting
     // a resource that already exists will overwrite it.
     pub fn insert_resource<R: Resource>(&mut self, resource: R) -> &mut Self {
+        // Can't just let the HashMap::insert replace the entity because then it would
+        // live for ever and never be cleaned up.
         if let Some(_) = self.resource_map.get(&TypeId::of::<R>()) {
-            self.delete_resource::<R>().expect(
-                "tried to delete resource that doesn't exit, even though it exists in resource_map",
-            );
+            self.remove_resource::<R>();
         }
         let e = self.inner.spawn((resource,));
         self.resource_map.insert(TypeId::of::<R>(), e);
@@ -79,27 +87,37 @@ impl World {
     // Return a unique reference to a resource or an error if it didn't exist.
     pub fn get_resource_mut<R: Resource>(&mut self) -> Option<hecs::RefMut<'_, R>> {
         let e = self.resource_map.get(&TypeId::of::<R>())?;
-        match self.inner.get::<&mut R>(*e) {
-            Ok(tmp) => Some(tmp),
-            Err(_) => None,
-        }
+        // If the entity doesn't exist and resource_map had the value still that's a bug.
+        Some(
+            self.inner
+                .get::<&mut R>(*e)
+                .expect("resource_map entry existed for a nonexistent entity"),
+        )
     }
 
     // Return a shared reference to a resource or an error if it didn't exist.
     pub fn get_resource<R: Resource>(&mut self) -> Option<hecs::Ref<'_, R>> {
         let e = self.resource_map.get(&TypeId::of::<R>())?;
-        match self.inner.get::<&R>(*e) {
-            Ok(tmp) => Some(tmp),
-            Err(_) => None,
-        }
+        // If the entity doesn't exist and resource_map had the value still that's a bug.
+        Some(
+            self.inner
+                .get::<&R>(*e)
+                .expect("resource_map entry existed for a nonexistent entity"),
+        )
     }
 
-    // Delete a resource or an error if it didn't exist.
-    pub fn delete_resource<R: Resource>(&mut self) -> anyhow::Result<()> {
-        let e = self.resource_map.get(&TypeId::of::<R>()).unwrap();
-        self.inner.get::<&R>(*e)?;
-        self.inner.despawn(*e)?;
-        Ok(())
+    // Delete a resource or an error if it didn't exist. Noop if the resource doesn't exist.
+    pub fn remove_resource<R: Resource>(&mut self) -> bool {
+        if let Some(e) = self.resource_map.get(&TypeId::of::<R>()) {
+            self.inner
+                .get::<&R>(*e)
+                .expect("resource_map entry existed for a nonexistent entity");
+            self.inner
+                .despawn(*e)
+                .expect("resource_map entry existed for a nonexistent entity");
+            return true;
+        }
+        return false;
     }
 
     // Must be called before using an event in trigger. Running register_event on an
@@ -126,19 +144,20 @@ impl World {
     }
 
     // Clean up an event when it will no longer be used. Calling this on a unregistered
-    // event will return an error.
-    pub fn deregister_event<E: Event>(&mut self) -> anyhow::Result<()> {
-        self.delete_resource::<EventBuffer<E>>()?;
-        self.event_updates.remove(&TypeId::of::<EventBuffer<E>>());
-        Ok(())
+    // event will return an error. Noop if the event didn't exist.
+    pub fn deregister_event<E: Event>(&mut self) {
+        if self.remove_resource::<EventBuffer<E>>() {
+            self.event_updates.remove(&TypeId::of::<EventBuffer<E>>());
+        }
     }
 
     // Send an event to the event queue for observers to view react to.
-    pub fn trigger<E: Event>(&mut self, event: E) -> Option<()> {
-        self.get_resource_mut::<EventBuffer<E>>()?
-            .events
-            .push(event);
-        Some(())
+    pub fn trigger<E: Event>(&mut self, event: E) -> anyhow::Result<()> {
+        if let Some(mut e) = self.get_resource_mut::<EventBuffer<E>>() {
+            e.events.push(event);
+            return Ok(());
+        }
+        Err(ECSError::ResourceNotFound.into())
     }
 
     // Adds a system to react to events. Currently this just adds a system to last.
@@ -172,4 +191,82 @@ pub fn clear_events(world: &mut World) -> anyhow::Result<()> {
         (update)(world)
     }
     Ok(())
+}
+
+// A label to group systems together in the scheduler.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ScheduleLabel {
+    Start,    // Runs once on startup.
+    First,    // Runs before any main update code.
+    Update,   // Main app logic.
+    Last,     // Runs after main update code.
+    Clear,    // Clear state for next loop.
+    Shutdown, // Run before exiting.
+}
+
+// A scheduler to do manual and automatic async for ECS
+// systems. For now it just does basic ordering and grouping.
+#[derive(Clone)]
+pub struct Scheduler {
+    schedule: HashMap<ScheduleLabel, Vec<System>>,
+    pub started: bool,
+    pub shutdown: bool,
+}
+
+impl Scheduler {
+    pub fn new() -> Self {
+        Self {
+            schedule: HashMap::new(),
+            started: false,
+            shutdown: false,
+        }
+    }
+
+    // Builds the order of the ScheduleLabels into a graph.
+    pub fn build_graph(&mut self) -> DiGraphMap<ScheduleLabel, ()> {
+        let dag;
+        if !self.started {
+            dag = DiGraphMap::<ScheduleLabel, ()>::from_edges(&[
+                (ScheduleLabel::Start, ScheduleLabel::First),
+                (ScheduleLabel::First, ScheduleLabel::Update),
+                (ScheduleLabel::Update, ScheduleLabel::Last),
+                (ScheduleLabel::Last, ScheduleLabel::Clear),
+            ])
+        } else if self.shutdown {
+            dag = DiGraphMap::<ScheduleLabel, ()>::from_edges(&[
+                (ScheduleLabel::First, ScheduleLabel::Update),
+                (ScheduleLabel::Update, ScheduleLabel::Last),
+                (ScheduleLabel::Last, ScheduleLabel::Clear),
+                (ScheduleLabel::Clear, ScheduleLabel::Shutdown),
+            ])
+        } else {
+            dag = DiGraphMap::<ScheduleLabel, ()>::from_edges(&[
+                (ScheduleLabel::First, ScheduleLabel::Update),
+                (ScheduleLabel::Update, ScheduleLabel::Last),
+                (ScheduleLabel::Last, ScheduleLabel::Clear),
+            ])
+        }
+        return dag;
+    }
+
+    // Run a loop of the configured schedule.
+    pub fn execute(&mut self, world: &mut World) -> bool {
+        let dag = self.build_graph();
+        let start = dag.nodes().nth(0).unwrap();
+        let mut bfs = Bfs::new(&dag, start);
+        while let Some(label) = bfs.next(&dag) {
+            if let Some(list) = self.schedule.get_mut(&label) {
+                for system in list.iter() {
+                    system(world).expect("systems don't support returning errors yet.");
+                }
+            }
+        }
+        self.shutdown
+    }
+
+    // Add a system to a group defined by label.
+    pub fn add_system(&mut self, label: ScheduleLabel, system: System) {
+        let list = self.schedule.entry(label).or_insert(Vec::new());
+        list.push(system);
+    }
 }

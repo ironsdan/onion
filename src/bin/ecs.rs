@@ -1,8 +1,5 @@
 use hecs::Entity;
-use onion::{
-    ecs::{Event, EventBuffer, Resource, World},
-    schedule::ScheduleLabel,
-};
+use onion::ecs::{Event, EventBuffer, Resource, ScheduleLabel, World};
 use onion_macros::{Event, Resource};
 use std::time::Duration;
 
@@ -42,9 +39,9 @@ fn health_system(world: &mut World) -> anyhow::Result<()> {
     }
     for id in deaths {
         println!("trigger death");
-        if world.trigger(DeathEvent { id }).is_none() {
-            println!("tried to trigger but that event isn't registered.")
-        }
+        world
+            .trigger(DeathEvent { id })
+            .expect("tried to trigger but that event isn't registered.")
     }
 
     Ok(())

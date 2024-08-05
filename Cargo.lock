@@ -962,6 +962,7 @@ dependencies = [
  "petgraph",
  "png",
  "rand",
+ "thiserror",
  "vulkano",
  "vulkano-shaders",
  "vulkano-util",
