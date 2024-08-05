@@ -1,9 +1,12 @@
+workspace = { members = ["macros"] }
+
 [package]
 name = "onion"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+onion_macros = { path = "./macros" }
 winit = "0.29"
 glam = "*"
 cgmath = "*"
@@ -14,3 +17,5 @@ vulkano-util = { git = "https://github.com/vulkano-rs/vulkano", rev = "582a246" 
 png = "*"
 fontdue = "*"
 hecs ="*"
+petgraph = "*"
+anyhow = "*"
